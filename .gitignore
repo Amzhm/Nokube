@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+*/node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+.dockerignore
+
+# Kubernetes secrets
+k8s/secrets/
+
+# Temporary files
+tmp/
+temp/
+
+# Kind local development (not for production)
+kind-config.yaml
+start-cluster.sh
+stop-cluster.sh
+cluster-logs/
+CLAUDE.md
+
+# Local development files
+nginx-ingress-example.yaml
