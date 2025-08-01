@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nokube-dev
+  labels:
+    app.kubernetes.io/name: nokube
+    app.kubernetes.io/component: namespace
+    environment: development
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nokube-system
+  labels:
+    app.kubernetes.io/name: nokube
+    app.kubernetes.io/component: system
+    environment: development
