@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: nokube-dev
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: localhost
+    http:
+      paths:
+      # Routes directes - PAS de rewrite, passent telles quelles
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8000
+      - path: /ready
+        pathType: Exact
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8000
+      - path: /services
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8000
+      # Route API avec rewrite spécifique
+      - path: /api/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8000
+        # Annotation au niveau du path (si supporté) ou utiliser server-snippet
