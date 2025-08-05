@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, Header
 from typing import Dict, Any, Optional
 from app.client import service_client
 from app.schemas import ServiceStatus
+from app.auth import verify_jwt_token, is_public_endpoint
 import json
 
 # Router pour les routes des microservices
@@ -14,7 +15,15 @@ async def proxy_auth(path: str, request: Request, authorization: Optional[str] =
     # Récupérer les données de la requête
     method = request.method
     params = dict(request.query_params)
-    headers = {"Authorization": authorization} if authorization else {}
+    
+    # Vérifier si l'endpoint nécessite une authentification
+    full_path = f"/auth/{path}"
+    headers = {}
+    
+    if not is_public_endpoint(full_path):
+        # Endpoint protégé - vérifier JWT et ajouter X-User
+        username = verify_jwt_token(authorization)
+        headers["X-User"] = username
     
     # Pour POST/PUT, récupérer le body JSON
     json_data = None
@@ -36,11 +45,14 @@ async def proxy_auth(path: str, request: Request, authorization: Optional[str] =
 
 @services_router.api_route("/projects/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_projects(path: str, request: Request, authorization: Optional[str] = Header(None)):
-    """Proxy vers le service de gestion des projets"""
+    """Proxy vers le service de gestion des projets (authentification requise)"""
+    
+    # Tous les endpoints projects nécessitent une authentification
+    username = verify_jwt_token(authorization)
     
     method = request.method
     params = dict(request.query_params)
-    headers = {"Authorization": authorization} if authorization else {}
+    headers = {"X-User": username}  # Transmettre le username au service
     
     json_data = None
     if method in ["POST", "PUT"]:
@@ -49,9 +61,12 @@ async def proxy_projects(path: str, request: Request, authorization: Optional[st
         except Exception:
             pass
     
+    # Si path est vide, utiliser "projects" pour l'endpoint racine
+    service_path = f"/projects" if not path else f"/projects/{path}"
+    
     return await service_client.forward_request(
         service_name="projects",
-        path=f"/{path}",
+        path=service_path,
         method=method,
         headers=headers,
         params=params,
@@ -60,11 +75,14 @@ async def proxy_projects(path: str, request: Request, authorization: Optional[st
 
 @services_router.api_route("/builds/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_builds(path: str, request: Request, authorization: Optional[str] = Header(None)):
-    """Proxy vers le service de build"""
+    """Proxy vers le service de build (authentification requise)"""
+    
+    # Tous les endpoints builds nécessitent une authentification
+    username = verify_jwt_token(authorization)
     
     method = request.method
     params = dict(request.query_params)
-    headers = {"Authorization": authorization} if authorization else {}
+    headers = {"X-User": username}  # Transmettre le username au service
     
     json_data = None
     if method in ["POST", "PUT"]:
@@ -73,9 +91,12 @@ async def proxy_builds(path: str, request: Request, authorization: Optional[str]
         except Exception:
             pass
     
+    # Si path est vide, utiliser "builds" pour l'endpoint racine
+    service_path = f"/builds" if not path else f"/builds/{path}"
+    
     return await service_client.forward_request(
         service_name="builds",
-        path=f"/{path}",
+        path=service_path,
         method=method,
         headers=headers,
         params=params,
@@ -84,11 +105,14 @@ async def proxy_builds(path: str, request: Request, authorization: Optional[str]
 
 @services_router.api_route("/monitor/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_monitor(path: str, request: Request, authorization: Optional[str] = Header(None)):
-    """Proxy vers le service de monitoring"""
+    """Proxy vers le service de monitoring (authentification requise)"""
+    
+    # Tous les endpoints monitor nécessitent une authentification
+    username = verify_jwt_token(authorization)
     
     method = request.method
     params = dict(request.query_params)
-    headers = {"Authorization": authorization} if authorization else {}
+    headers = {"X-User": username}  # Transmettre le username au service
     
     json_data = None
     if method in ["POST", "PUT"]:
@@ -97,9 +121,12 @@ async def proxy_monitor(path: str, request: Request, authorization: Optional[str
         except Exception:
             pass
     
+    # Si path est vide, utiliser "monitor" pour l'endpoint racine
+    service_path = f"/monitor" if not path else f"/monitor/{path}"
+    
     return await service_client.forward_request(
         service_name="monitor",
-        path=f"/{path}",
+        path=service_path,
         method=method,
         headers=headers,
         params=params,

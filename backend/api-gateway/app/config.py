@@ -17,6 +17,10 @@ class Settings:
     # Timeout pour les requêtes vers les microservices (en secondes)
     SERVICE_TIMEOUT: int = int(os.getenv("SERVICE_TIMEOUT", "30"))
     
+    # JWT configuration - pour l'authentification centralisée
+    JWT_SECRET: str = os.getenv("JWT_SECRET")
+    JWT_ALGORITHM: str = "HS256"
+    
     # Configuration des routes - mapping des services
     SERVICE_ROUTES: Dict[str, str] = {
         "auth": AUTH_SERVICE_URL,

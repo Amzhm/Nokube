@@ -34,6 +34,12 @@ spec:
           value: "http://monitor-service:8000"
         - name: SERVICE_TIMEOUT
           value: "30"
+        # JWT Secret pour authentification centralisée
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-secret
+              key: JWT_SECRET
         livenessProbe:
           httpGet:
             path: /health
