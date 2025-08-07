@@ -1,0 +1,77 @@
+from pydantic import BaseModel, HttpUrl
+from datetime import datetime
+from typing import Optional, Dict, Any
+from enum import Enum
+
+class BuildStatus(str, Enum):
+    PENDING = "pending"
+    BUILDING = "building"
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+# Input schemas
+class BuildRequest(BaseModel):
+    """Requête de build avec repo GitHub et Dockerfile"""
+    project_id: int
+    repository_url: HttpUrl
+    branch: Optional[str] = "main"
+    dockerfile_content: Optional[str] = None  # Si None, utilise le Dockerfile du repo
+    image_name: str  # Nom final de l'image (ex: "my-app")
+    image_tag: Optional[str] = "latest"
+    build_args: Optional[Dict[str, str]] = {}  # Arguments Docker build
+    
+class BuildCancel(BaseModel):
+    """Annuler un build en cours"""
+    build_id: str
+    reason: Optional[str] = "Cancelled by user"
+
+# Output schemas
+class BuildResponse(BaseModel):
+    """Réponse après soumission d'un build"""
+    build_id: str
+    project_id: int
+    status: BuildStatus
+    image_full_name: str  # ghcr.io/amzhm/nokube/my-app:latest
+    created_at: datetime
+    estimated_duration: Optional[int] = None  # en secondes
+    
+class BuildStatusResponse(BaseModel):
+    """Status d'un build en cours ou terminé"""
+    build_id: str
+    project_id: int
+    status: BuildStatus
+    image_full_name: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration: Optional[int] = None  # en secondes
+    logs: Optional[str] = None
+    error_message: Optional[str] = None
+    
+class BuildLogResponse(BaseModel):
+    """Logs en temps réel d'un build"""
+    build_id: str
+    logs: str
+    timestamp: datetime
+    is_complete: bool
+
+class BuildListResponse(BaseModel):
+    """Liste des builds d'un projet"""
+    builds: list[BuildStatusResponse]
+    total: int
+    limit: int
+    offset: int
+
+# Health check schemas
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    timestamp: datetime
+    docker_status: Optional[str] = None
+    
+class ReadyResponse(BaseModel):
+    status: str
+    docker_available: bool
+    ghcr_configured: bool
+    temp_dir_available: bool

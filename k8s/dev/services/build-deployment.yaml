@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: build-service
+  namespace: nokube-dev
+  labels:
+    app: build-service
+spec:
+  replicas: 1  # Un seul replica pour éviter conflits avec Docker builds
+  selector:
+    matchLabels:
+      app: build-service
+  template:
+    metadata:
+      labels:
+        app: build-service
+    spec:
+      containers:
+      # Docker-in-Docker sidecar
+      - name: dind
+        image: docker:24.0.7-dind
+        securityContext:
+          privileged: true
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""
+        volumeMounts:
+        - name: docker-graph-storage
+          mountPath: /var/lib/docker
+      # Build service principal
+      - name: build-service
+        image: nokube/build-service:latest
+        imagePullPolicy: Never  # For Kind local images
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DOCKER_HOST
+          value: "tcp://localhost:2375"
+        - name: DOCKER_REGISTRY
+          value: "ghcr.io"
+        - name: DOCKER_NAMESPACE
+          value: "amzhm/nokube"
+        - name: GHCR_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: build-secret
+              key: GHCR_USERNAME
+        - name: GHCR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: build-secret
+              key: GHCR_TOKEN
+        - name: BUILD_TIMEOUT
+          value: "600"
+        - name: MAX_CONCURRENT_BUILDS
+          value: "2"
+        - name: TEMP_BUILD_DIR
+          value: "/tmp/builds"
+        volumeMounts:
+        - name: temp-builds
+          mountPath: /tmp/builds
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 15  # Plus long car vérifie Docker
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"  # Plus de CPU pour les builds
+      volumes:
+      - name: temp-builds
+        emptyDir:
+          sizeLimit: "5Gi"
+      - name: docker-graph-storage
+        emptyDir:
+          sizeLimit: "10Gi"
