@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myfilms-app
+  namespace: nokube-dev
+  labels:
+    app: myfilms-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myfilms-app
+  template:
+    metadata:
+      labels:
+        app: myfilms-app
+    spec:
+      containers:
+      - name: myfilms-app
+        image: ghcr.io/amzhm/myfilms-simple:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+      imagePullSecrets:
+      - name: ghcr-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: myfilms-service
+  namespace: nokube-dev
+spec:
+  selector:
+    app: myfilms-app
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: ClusterIP

@@ -68,10 +68,9 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     timestamp: datetime
-    docker_status: Optional[str] = None
+    github_status: Optional[str] = None
     
 class ReadyResponse(BaseModel):
     status: str
-    docker_available: bool
-    ghcr_configured: bool
-    temp_dir_available: bool
+    github_available: bool
+    github_configured: bool

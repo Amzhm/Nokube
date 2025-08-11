@@ -10,7 +10,7 @@ from app.schemas import (
     BuildCancel, BuildLogResponse, BuildListResponse,
     HealthResponse, ReadyResponse, BuildStatus
 )
-from app.builder import docker_service
+from app.github_builder import github_builder
 from app.middleware import LoggingMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -52,40 +52,38 @@ async def root():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check du Build Service"""
-    docker_status = "unknown"
+    github_status = "unknown"
     try:
-        docker_service.client.ping()
-        docker_status = "connected"
+        github_builder.repo.get_contents("README.md")  # Test simple d'accès
+        github_status = "connected"
     except Exception:
-        docker_status = "disconnected"
+        github_status = "disconnected"
     
     return HealthResponse(
         status="healthy",
         service="build-service",
         timestamp=datetime.now(),
-        docker_status=docker_status
+        github_status=github_status
     )
 
 @app.get("/ready", response_model=ReadyResponse)
 async def ready_check():
     """Readiness check du Build Service"""
-    docker_available = False
-    ghcr_configured = bool(settings.GHCR_TOKEN and settings.GHCR_USERNAME)
-    temp_dir_available = True  # Simplifié pour l'instant
+    github_available = False
+    github_configured = bool(settings.GITHUB_TOKEN and settings.GITHUB_BUILD_REPO)
     
     try:
-        docker_service.client.ping()
-        docker_available = True
+        github_builder.repo.get_contents("README.md")
+        github_available = True
     except Exception:
         pass
     
-    status = "ready" if (docker_available and ghcr_configured) else "not_ready"
+    status = "ready" if (github_available and github_configured) else "not_ready"
     
     return ReadyResponse(
         status=status,
-        docker_available=docker_available,
-        ghcr_configured=ghcr_configured,
-        temp_dir_available=temp_dir_available
+        github_available=github_available,
+        github_configured=github_configured
     )
 
 @app.post("/builds", response_model=BuildResponse)
@@ -101,7 +99,7 @@ async def create_build(
         def update_build_status(build_status: BuildStatusResponse):
             builds_storage[build_status.build_id] = build_status
             
-        build_id = await docker_service.start_build(build_request, update_build_status)
+        build_id = await github_builder.start_build(build_request, update_build_status, x_user)
         
         # Image complète
         image_full_name = f"{settings.DOCKER_REGISTRY}/{settings.DOCKER_NAMESPACE}/{build_request.image_name}:{build_request.image_tag}"
@@ -153,7 +151,7 @@ async def cancel_build(
     if build_id not in builds_storage:
         raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
     
-    success = await docker_service.cancel_build(build_id)
+    success = await github_builder.cancel_build(build_id)
     
     if success:
         builds_storage[build_id].status = BuildStatus.CANCELLED
@@ -173,7 +171,7 @@ async def get_build_logs(
         raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
     
     async def log_generator():
-        async for log_line in docker_service.get_build_logs(build_id):
+        async for log_line in github_builder.get_build_logs(build_id):
             yield f"data: {log_line}\n\n"
     
     return StreamingResponse(
@@ -235,7 +233,7 @@ async def list_all_builds(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "active_builds": docker_service.get_active_builds()
+        "active_builds": github_builder.get_active_builds()
     }
 
 @app.get("/status")
@@ -245,9 +243,9 @@ async def service_status():
     return {
         "service": "build-service",
         "status": "running",
-        "docker_configured": bool(docker_service.client),
+        "github_configured": bool(settings.GITHUB_TOKEN and settings.GITHUB_BUILD_REPO),
         "ghcr_configured": bool(settings.GHCR_TOKEN and settings.GHCR_USERNAME),
-        "active_builds_count": len(docker_service.active_builds),
+        "active_builds_count": len(github_builder.active_builds),
         "total_builds": len(builds_storage),
         "settings": {
             "max_concurrent_builds": settings.MAX_CONCURRENT_BUILDS,

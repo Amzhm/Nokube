@@ -6,7 +6,7 @@ metadata:
   labels:
     app: build-service
 spec:
-  replicas: 1  # Un seul replica pour éviter conflits avec Docker builds
+  replicas: 2  # Peut avoir plusieurs replicas avec GitHub Actions
   selector:
     matchLabels:
       app: build-service
@@ -16,30 +16,23 @@ spec:
         app: build-service
     spec:
       containers:
-      # Docker-in-Docker sidecar
-      - name: dind
-        image: docker:24.0.7-dind
-        securityContext:
-          privileged: true
-        env:
-        - name: DOCKER_TLS_CERTDIR
-          value: ""
-        volumeMounts:
-        - name: docker-graph-storage
-          mountPath: /var/lib/docker
-      # Build service principal
       - name: build-service
         image: nokube/build-service:latest
         imagePullPolicy: Never  # For Kind local images
         ports:
         - containerPort: 8000
         env:
-        - name: DOCKER_HOST
-          value: "tcp://localhost:2375"
         - name: DOCKER_REGISTRY
           value: "ghcr.io"
         - name: DOCKER_NAMESPACE
-          value: "amzhm/nokube"
+          value: "amzhm"
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: build-secret
+              key: GITHUB_TOKEN
+        - name: GITHUB_BUILD_REPO
+          value: "Amzhm/NoKube-build"
         - name: GHCR_USERNAME
           valueFrom:
             secretKeyRef:
@@ -53,12 +46,7 @@ spec:
         - name: BUILD_TIMEOUT
           value: "600"
         - name: MAX_CONCURRENT_BUILDS
-          value: "2"
-        - name: TEMP_BUILD_DIR
-          value: "/tmp/builds"
-        volumeMounts:
-        - name: temp-builds
-          mountPath: /tmp/builds
+          value: "3"
         livenessProbe:
           httpGet:
             path: /health
@@ -71,18 +59,11 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 15  # Plus long car vérifie Docker
+          timeoutSeconds: 10
         resources:
           requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
             memory: "512Mi"
             cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "2000m"  # Plus de CPU pour les builds
-      volumes:
-      - name: temp-builds
-        emptyDir:
-          sizeLimit: "5Gi"
-      - name: docker-graph-storage
-        emptyDir:
-          sizeLimit: "10Gi"
