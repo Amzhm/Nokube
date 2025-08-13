@@ -16,7 +16,12 @@ class BuildRequest(BaseModel):
     project_id: int
     repository_url: HttpUrl
     branch: Optional[str] = "main"
-    dockerfile_content: Optional[str] = None  # Si None, utilise le Dockerfile du repo
+    
+    # Gestion Dockerfile
+    has_dockerfile: bool = False  # True si Dockerfile existe dans le repo user
+    dockerfile_path: Optional[str] = "Dockerfile"  # Chemin dans le repo user
+    dockerfile_content: Optional[str] = None  # Contenu si pas de Dockerfile existant
+    
     image_name: str  # Nom final de l'image (ex: "my-app")
     image_tag: Optional[str] = "latest"
     service_name: str  # Nom du service (ex: "frontend", "backend")

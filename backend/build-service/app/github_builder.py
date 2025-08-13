@@ -87,9 +87,9 @@ class GitHubActionsBuilder:
         try:
             print(f"Starting GitHub Actions build {build_id} for {build_request.repository_url}")
             
-            # Étape 1: Créer/mettre à jour le Dockerfile dans nokube-builds
-            dockerfile_path = await self._upload_dockerfile(build_id, build_request, username)
-            print(f"Dockerfile uploaded to: {dockerfile_path}")
+            # Étape 1: Déterminer le Dockerfile à utiliser
+            dockerfile_path = await self._prepare_dockerfile(build_id, build_request, username)
+            print(f"Using Dockerfile: {dockerfile_path}")
             
             # Étape 2: Déclencher le workflow GitHub Actions
             workflow_run_id = await self._trigger_workflow(build_id, build_request, dockerfile_path, username)
@@ -119,6 +119,19 @@ class GitHubActionsBuilder:
         
         return build_status
     
+    async def _prepare_dockerfile(self, build_id: str, build_request: BuildRequest, username: str = None) -> str:
+        """Déterminer quel Dockerfile utiliser : existant dans repo user ou créé dans nokube-builds"""
+        
+        if build_request.has_dockerfile:
+            # Utiliser le Dockerfile existant dans le repo utilisateur
+            dockerfile_path = f"source-code/{build_request.dockerfile_path}"
+            print(f"Using existing Dockerfile from user repo: {build_request.dockerfile_path}")
+            return dockerfile_path
+        else:
+            # Créer/uploader le Dockerfile dans nokube-builds
+            dockerfile_path = await self._upload_dockerfile(build_id, build_request, username)
+            return dockerfile_path
+    
     async def _upload_dockerfile(self, build_id: str, build_request: BuildRequest, username: str = None) -> str:
         """Upload du Dockerfile dans le repo nokube-builds organisé par utilisateur/projet/service"""
         
@@ -129,8 +142,17 @@ class GitHubActionsBuilder:
         service_name = build_request.service_name
         dockerfile_path = f"projects/{username}/{project_name}/{service_name}/Dockerfile"
         
-        # Contenu du Dockerfile (fourni par le frontend ou par défaut)
-        dockerfile_content = build_request.dockerfile_content or "FROM alpine:latest\nCMD echo 'No Dockerfile provided'"
+        # Contenu du Dockerfile (fourni par le frontend ou généré par défaut)
+        if build_request.dockerfile_content:
+            dockerfile_content = build_request.dockerfile_content
+        else:
+            # Générer un Dockerfile basique par défaut
+            dockerfile_content = """FROM alpine:latest
+RUN apk add --no-cache curl
+COPY . /app
+WORKDIR /app
+EXPOSE 8080
+CMD ["echo", "NoKube default container - configure your Dockerfile"]"""
         
         # Créer ou mettre à jour le fichier dans le repo
         try:
