@@ -4,28 +4,49 @@
 
 'use client';
 
+import { useState } from 'react';
 import { ArchitectureStep } from './steps/ArchitectureStep';
 import { BuildStep } from './steps/BuildStep';
-import { SourceStep } from './steps/SourceStep';
 import { Button } from '@/shared/ui/Button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useDeploymentWizard } from '../presentation/useDeploymentWizard.hook';
+import type { ProjectArchitecture, BuildConfig } from '@/shared/types/deployment.types';
+
+type WizardStep = 'architecture' | 'build' | 'review';
 
 export const DeploymentWizard = () => {
-  const {
-    currentStep,
-    architecture,
-    serviceBuildConfigs,
-    steps,
-    currentStepIndex,
-    canProceed,
-    isFirstStep,
-    isLastStep,
-    setArchitecture,
-    setServiceBuildConfigs,
-    handleNext,
-    handlePrevious,
-  } = useDeploymentWizard();
+  const [currentStep, setCurrentStep] = useState<WizardStep>('architecture');
+  const [architecture, setArchitecture] = useState<ProjectArchitecture | null>(null);
+  const [buildConfig, setBuildConfig] = useState<BuildConfig | null>(null);
+
+  const steps = [
+    { id: 'architecture', label: 'Architecture', description: 'Services et infrastructure' },
+    { id: 'build', label: 'Build', description: 'Code et configuration' },
+    { id: 'review', label: 'Révision', description: 'Validation finale' },
+  ];
+
+  const currentStepIndex = steps.findIndex(step => step.id === currentStep);
+
+  const handleNext = () => {
+    if (currentStep === 'architecture' && architecture) {
+      setCurrentStep('build');
+    } else if (currentStep === 'build' && buildConfig) {
+      setCurrentStep('review');
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStep === 'build') {
+      setCurrentStep('architecture');
+    } else if (currentStep === 'review') {
+      setCurrentStep('build');
+    }
+  };
+
+  const canProceed = () => {
+    if (currentStep === 'architecture') return !!architecture;
+    if (currentStep === 'build') return !!buildConfig;
+    return true;
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200">
@@ -70,16 +91,8 @@ export const DeploymentWizard = () => {
 
         {currentStep === 'build' && (
           <BuildStep
-            serviceBuildConfigs={serviceBuildConfigs}
-            onChange={setServiceBuildConfigs}
-            architecture={architecture}
-          />
-        )}
-
-        {currentStep === 'source' && (
-          <SourceStep
-            serviceBuildConfigs={serviceBuildConfigs}
-            onChange={setServiceBuildConfigs}
+            value={buildConfig}
+            onChange={setBuildConfig}
             architecture={architecture}
           />
         )}
@@ -101,7 +114,7 @@ export const DeploymentWizard = () => {
         <Button
           variant="outline"
           onClick={handlePrevious}
-          disabled={isFirstStep}
+          disabled={currentStep === 'architecture'}
           className="flex items-center gap-2"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -109,14 +122,14 @@ export const DeploymentWizard = () => {
         </Button>
 
         <div className="flex gap-3">
-          {isLastStep ? (
+          {currentStep === 'review' ? (
             <Button className="flex items-center gap-2">
               Déployer
             </Button>
           ) : (
             <Button
               onClick={handleNext}
-              disabled={!canProceed}
+              disabled={!canProceed()}
               className="flex items-center gap-2"
             >
               Suivant

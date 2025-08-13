@@ -101,8 +101,12 @@ async def create_build(
             
         build_id = await github_builder.start_build(build_request, update_build_status, x_user)
         
+        # Générer nom image format: user-project-service
+        project_name = build_request.image_name.split('-')[0] if '-' in build_request.image_name else build_request.image_name
+        generated_image_name = f"{x_user}-{project_name}-{build_request.service_name}"
+        
         # Image complète
-        image_full_name = f"{settings.DOCKER_REGISTRY}/{settings.DOCKER_NAMESPACE}/{build_request.image_name}:{build_request.image_tag}"
+        image_full_name = f"{settings.DOCKER_REGISTRY}/{settings.DOCKER_NAMESPACE}/{generated_image_name}:{build_request.image_tag}"
         
         # Créer la réponse initiale
         build_response = BuildResponse(
@@ -118,6 +122,7 @@ async def create_build(
         builds_storage[build_id] = BuildStatusResponse(
             build_id=build_id,
             project_id=build_request.project_id,
+            service_name=build_request.service_name,
             status=BuildStatus.BUILDING,
             image_full_name=image_full_name,
             created_at=datetime.now(),

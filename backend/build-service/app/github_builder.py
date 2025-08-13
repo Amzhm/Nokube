@@ -68,8 +68,12 @@ class GitHubActionsBuilder:
     ) -> BuildStatusResponse:
         """Exécuter le build avec GitHub Actions"""
         
+        # Générer nom image format: user-project-service  
+        project_name = build_request.image_name.split('-')[0] if '-' in build_request.image_name else build_request.image_name
+        generated_image_name = f"{username}-{project_name}-{build_request.service_name}"
+        
         # Image complète avec registry
-        image_full_name = f"{settings.DOCKER_REGISTRY}/{settings.DOCKER_NAMESPACE}/{build_request.image_name}:{build_request.image_tag}"
+        image_full_name = f"{settings.DOCKER_REGISTRY}/{settings.DOCKER_NAMESPACE}/{generated_image_name}:{build_request.image_tag}"
         
         build_status = BuildStatusResponse(
             build_id=build_id,
@@ -88,7 +92,7 @@ class GitHubActionsBuilder:
             print(f"Dockerfile uploaded to: {dockerfile_path}")
             
             # Étape 2: Déclencher le workflow GitHub Actions
-            workflow_run_id = await self._trigger_workflow(build_id, build_request, dockerfile_path)
+            workflow_run_id = await self._trigger_workflow(build_id, build_request, dockerfile_path, username)
             print(f"GitHub workflow triggered: {workflow_run_id}")
             
             # Étape 3: Démarrer le monitoring en arrière-plan (ne pas attendre)
@@ -116,12 +120,14 @@ class GitHubActionsBuilder:
         return build_status
     
     async def _upload_dockerfile(self, build_id: str, build_request: BuildRequest, username: str = None) -> str:
-        """Upload du Dockerfile dans le repo nokube-builds organisé par utilisateur/projet"""
+        """Upload du Dockerfile dans le repo nokube-builds organisé par utilisateur/projet/service"""
         
-        # Path organisé par utilisateur et nom d'image
+        # Path organisé par utilisateur, projet et service
         username = username or "anonymous"
-        project_name = build_request.image_name
-        dockerfile_path = f"projects/{username}/{project_name}/Dockerfile"
+        # Extraire project_name de image_name (format: project-service)
+        project_name = build_request.image_name.split('-')[0] if '-' in build_request.image_name else build_request.image_name
+        service_name = build_request.service_name
+        dockerfile_path = f"projects/{username}/{project_name}/{service_name}/Dockerfile"
         
         # Contenu du Dockerfile (fourni par le frontend ou par défaut)
         dockerfile_content = build_request.dockerfile_content or "FROM alpine:latest\nCMD echo 'No Dockerfile provided'"
@@ -134,7 +140,7 @@ class GitHubActionsBuilder:
                 # Mettre à jour le fichier existant
                 self.repo.update_file(
                     path=dockerfile_path,
-                    message=f"Update Dockerfile for {username}/{project_name}",
+                    message=f"Update Dockerfile for {username}/{project_name}/{service_name}",
                     content=dockerfile_content,
                     sha=existing_file.sha
                 )
@@ -142,7 +148,7 @@ class GitHubActionsBuilder:
                 # Le fichier n'existe pas, le créer
                 self.repo.create_file(
                     path=dockerfile_path,
-                    message=f"Add Dockerfile for {username}/{project_name}",
+                    message=f"Add Dockerfile for {username}/{project_name}/{service_name}",
                     content=dockerfile_content
                 )
             
@@ -152,8 +158,12 @@ class GitHubActionsBuilder:
         except GithubException as e:
             raise Exception(f"Failed to upload Dockerfile: {e}")
     
-    async def _trigger_workflow(self, build_id: str, build_request: BuildRequest, dockerfile_path: str) -> int:
+    async def _trigger_workflow(self, build_id: str, build_request: BuildRequest, dockerfile_path: str, username: str = None) -> int:
         """Déclencher le workflow GitHub Actions"""
+        
+        # Générer nom image format: user-project-service
+        project_name = build_request.image_name.split('-')[0] if '-' in build_request.image_name else build_request.image_name
+        generated_image_name = f"{username}-{project_name}-{build_request.service_name}"
         
         # Inputs pour le workflow
         workflow_inputs = {
@@ -161,7 +171,7 @@ class GitHubActionsBuilder:
             "dockerfile_path": dockerfile_path,
             "source_repo": str(build_request.repository_url).replace("https://github.com/", ""),
             "source_branch": build_request.branch or "main",
-            "image_name": build_request.image_name,
+            "image_name": generated_image_name,  # Nom généré au format user-project-service
             "image_tag": build_request.image_tag or "latest",
             "registry": settings.DOCKER_REGISTRY,
             "namespace": settings.DOCKER_NAMESPACE,

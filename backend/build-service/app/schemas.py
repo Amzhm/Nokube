@@ -19,6 +19,7 @@ class BuildRequest(BaseModel):
     dockerfile_content: Optional[str] = None  # Si None, utilise le Dockerfile du repo
     image_name: str  # Nom final de l'image (ex: "my-app")
     image_tag: Optional[str] = "latest"
+    service_name: str  # Nom du service (ex: "frontend", "backend")
     build_args: Optional[Dict[str, str]] = {}  # Arguments Docker build
     
 class BuildCancel(BaseModel):
@@ -40,6 +41,7 @@ class BuildStatusResponse(BaseModel):
     """Status d'un build en cours ou terminé"""
     build_id: str
     project_id: int
+    service_name: Optional[str] = None  # Nom du service
     status: BuildStatus
     image_full_name: str
     created_at: datetime
