@@ -1,0 +1,228 @@
+# Backend API - Exposition interne avec stockage et autoscaling
+---
+# NAMESPACE
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testuser2-ecommerce-app
+  labels:
+    project-id: "1"
+    project-name: ecommerce-app
+    username: testuser2
+    managed-by: nokube
+  annotations:
+    nokube.io/project-name: "ecommerce-app"
+    nokube.io/username: "testuser2"
+    nokube.io/created-by: "monitor-service"
+    nokube.io/access-pattern: "path-based"
+
+---
+# DEPLOYMENT
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: backend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: backend
+    deployment-id: test-backend-001
+    username: testuser2
+  annotations:
+    description: "API REST pour l'application e-commerce"
+    nokube.io/display-name: "E-commerce API"
+    nokube.io/access-url: "internal-only"
+    nokube.io/internal-url: "http://backend-service:8000"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        project-id: "1"
+        project-name: ecommerce-app
+        service: backend
+        username: testuser2
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: backend
+        image: ghcr.io/amzhm/testuser2-ecommerce-app-backend:latest
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 300m
+            memory: 512Mi
+          limits:
+            cpu: 1500m
+            memory: 2Gi
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 2
+        
+        
+        env:
+        
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        
+        
+        - secretRef:
+            name: backend-secret
+        
+        
+        
+        volumeMounts:
+        - name: backend-storage
+          mountPath: /app/data
+        
+      
+      volumes:
+      - name: backend-storage
+        persistentVolumeClaim:
+          claimName: backend-pvc
+      
+
+---
+# SERVICE
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: backend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: backend
+    username: testuser2
+  annotations:
+    nokube.io/internal-url: "http://backend-service:8000"
+    nokube.io/port-mapping: "service:8000 -> container:8000"
+spec:
+  selector:
+    app: backend
+  ports:
+  - name: http
+    port: 8000         # Port du service (standardisé 8000)
+    targetPort: 8000 # Port du container (choix utilisateur)
+    protocol: TCP
+  type: ClusterIP
+
+---
+# CONFIGMAP
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: backend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: backend
+    username: testuser2
+  annotations:
+    nokube.io/dns-info: "Internal services accessible via: <service-name>-service:8000"
+data:
+
+  ENVIRONMENT: "production"
+
+  DATABASE_URL: "postgresql://user:pass@db:5432/ecommerce"
+
+  # DNS Internal Services (auto-generated)
+  INTERNAL_SERVICE_URL: "http://backend-service:8000"
+  SERVICE_NAMESPACE: "testuser2-ecommerce-app"
+
+---
+# SECRET
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secret
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: backend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: backend
+    username: testuser2
+type: Opaque
+data:
+
+  JWT_SECRET: am13dF9zZWNyZXRfa2V5XzEyMw==  # Base64 encoded by user
+
+  DB_PASSWORD: c2VjdXJlX3Bhc3N3b3JkXzQ1Ng==  # Base64 encoded by user
+
+
+---
+# PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-pvc
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: backend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: backend
+    username: testuser2
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: local-path
+
+---
+# HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: backend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: backend
+    username: testuser2
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+

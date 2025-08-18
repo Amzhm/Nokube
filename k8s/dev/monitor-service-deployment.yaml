@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitor-service
+  namespace: nokube-dev
+  labels:
+    app: monitor-service
+    service: monitor
+    managed-by: nokube
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: monitor-service
+  template:
+    metadata:
+      labels:
+        app: monitor-service
+        service: monitor
+    spec:
+      serviceAccountName: monitor-service-sa
+      containers:
+      - name: monitor-service
+        image: nokube/monitor-service:latest
+        imagePullPolicy: Never  # Pour Kind local
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        - name: DEFAULT_HOST
+          value: "localhost"
+        - name: DEFAULT_REPLICAS
+          value: "2"
+        - name: INGRESS_CLASS
+          value: "nginx"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitor-service
+  namespace: nokube-dev
+  labels:
+    app: monitor-service
+    service: monitor
+spec:
+  selector:
+    app: monitor-service
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP

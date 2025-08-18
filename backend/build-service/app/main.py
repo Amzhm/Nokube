@@ -35,7 +35,7 @@ app.add_middleware(
 builds_storage: dict[str, BuildStatusResponse] = {}
 
 @app.get("/")
-async def root():
+async def root(x_user: str = Header(...)):
     """Endpoint racine du Build Service"""
     return {
         "service": "NoKube Build Service",

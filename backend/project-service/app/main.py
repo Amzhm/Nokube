@@ -33,7 +33,7 @@ async def shutdown():
     await db.disconnect()
 
 @app.get("/")
-async def root():
+async def root(x_user: str = Header(...)):
     """Endpoint racine du Project Service"""
     return {
         "service": "NoKube Project Service",

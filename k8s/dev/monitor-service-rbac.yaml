@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitor-service-sa
+  namespace: nokube-dev
+  labels:
+    app: monitor-service
+    managed-by: nokube
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: monitor-service-role
+  labels:
+    app: monitor-service
+    managed-by: nokube
+rules:
+# Permissions pour gérer les namespaces
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+# Permissions pour gérer les déploiements
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "create", "delete", "patch", "update", "watch"]
+
+# Permissions pour gérer les services
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+# Permissions pour gérer les ingress
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+# Permissions pour gérer les ConfigMaps et Secrets
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+# Permissions pour gérer les PVCs
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+# Permissions pour gérer les HPAs
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+# Permissions pour lire les nodes (health check)
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+
+# Permissions pour lire les pods (status monitoring)
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: monitor-service-binding
+  labels:
+    app: monitor-service
+    managed-by: nokube
+subjects:
+- kind: ServiceAccount
+  name: monitor-service-sa
+  namespace: nokube-dev
+roleRef:
+  kind: ClusterRole
+  name: monitor-service-role
+  apiGroup: rbac.authorization.k8s.io

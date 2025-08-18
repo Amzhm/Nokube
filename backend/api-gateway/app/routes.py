@@ -61,8 +61,8 @@ async def proxy_projects(path: str, request: Request, authorization: Optional[st
         except Exception:
             pass
     
-    # Si path est vide, utiliser "projects" pour l'endpoint racine
-    service_path = f"/projects" if not path else f"/projects/{path}"
+    # Router directement le path vers le service (enlever le préfixe projects/)
+    service_path = f"/" if not path else f"/{path}"
     
     return await service_client.forward_request(
         service_name="projects",
@@ -91,8 +91,8 @@ async def proxy_builds(path: str, request: Request, authorization: Optional[str]
         except Exception:
             pass
     
-    # Si path est vide, utiliser "builds" pour l'endpoint racine
-    service_path = f"/builds" if not path else f"/builds/{path}"
+    # Router directement le path vers le service (enlever le préfixe builds/)
+    service_path = f"/" if not path else f"/{path}"
     
     return await service_client.forward_request(
         service_name="builds",
@@ -121,8 +121,8 @@ async def proxy_monitor(path: str, request: Request, authorization: Optional[str
         except Exception:
             pass
     
-    # Si path est vide, utiliser "monitor" pour l'endpoint racine
-    service_path = f"/monitor" if not path else f"/monitor/{path}"
+    # Router directement le path vers le service (enlever le préfixe monitor/)
+    service_path = f"/" if not path else f"/{path}"
     
     return await service_client.forward_request(
         service_name="monitor",

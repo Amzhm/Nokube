@@ -1,0 +1,182 @@
+# Frontend React - Exposition publique avec Ingress
+---
+# NAMESPACE
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testuser2-ecommerce-app
+  labels:
+    project-id: "1"
+    project-name: ecommerce-app
+    username: testuser2
+    managed-by: nokube
+  annotations:
+    nokube.io/project-name: "ecommerce-app"
+    nokube.io/username: "testuser2"
+    nokube.io/created-by: "monitor-service"
+    nokube.io/access-pattern: "path-based"
+
+---
+# DEPLOYMENT
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: frontend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: frontend
+    deployment-id: test-frontend-001
+    username: testuser2
+  annotations:
+    description: "Interface React pour l'application e-commerce"
+    nokube.io/display-name: "E-commerce Frontend"
+    nokube.io/access-url: "http://nokube.local/testuser2/ecommerce-app/frontend"
+    nokube.io/internal-url: "http://frontend-service:8000"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        project-id: "1"
+        project-name: ecommerce-app
+        service: frontend
+        username: testuser2
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: frontend
+        image: ghcr.io/amzhm/testuser2-ecommerce-app-frontend:latest
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 2
+        
+        
+        env:
+        
+        envFrom:
+        - configMapRef:
+            name: frontend-config
+        
+        
+        
+        
+      
+
+---
+# SERVICE
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: frontend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: frontend
+    username: testuser2
+  annotations:
+    nokube.io/internal-url: "http://frontend-service:8000"
+    nokube.io/port-mapping: "service:8000 -> container:3000"
+spec:
+  selector:
+    app: frontend
+  ports:
+  - name: http
+    port: 8000         # Port du service (standardisé 8000)
+    targetPort: 3000 # Port du container (choix utilisateur)
+    protocol: TCP
+  type: ClusterIP
+
+---
+# INGRESS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-ingress
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: frontend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: frontend
+    username: testuser2
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    
+    nokube.io/access-url: "http://nokube.local/testuser2/ecommerce-app/frontend"
+    nokube.io/routing-pattern: "path-based"
+spec:
+  ingressClassName: nginx
+  
+  rules:
+  - host: nokube.local
+    http:
+      paths:
+      - path: /testuser2/ecommerce-app/frontend/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 8000  # Port du service (8000)
+
+---
+# CONFIGMAP
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: testuser2-ecommerce-app
+  labels:
+    app: frontend
+    project-id: "1"
+    project-name: ecommerce-app
+    service: frontend
+    username: testuser2
+  annotations:
+    nokube.io/dns-info: "Internal services accessible via: <service-name>-service:8000"
+data:
+
+  NODE_ENV: "production"
+
+  API_BASE_URL: "http://backend-service:8000/api"
+
+  NEXT_PUBLIC_APP_NAME: "NoKube E-commerce"
+
+  # DNS Internal Services (auto-generated)
+  INTERNAL_SERVICE_URL: "http://frontend-service:8000"
+  SERVICE_NAMESPACE: "testuser2-ecommerce-app"
+
