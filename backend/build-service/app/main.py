@@ -11,6 +11,7 @@ from app.schemas import (
     HealthResponse, ReadyResponse, BuildStatus
 )
 from app.github_builder import github_builder
+from app.database import db, init_db, create_build, get_build, update_build_status, list_builds_by_project, list_all_builds, count_builds
 from app.middleware import LoggingMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -31,8 +32,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Stockage temporaire des builds (en production, utiliser une DB)
-builds_storage: dict[str, BuildStatusResponse] = {}
+# Events de cycle de vie
+@app.on_event("startup")
+async def startup():
+    """Initialiser la connexion DB au démarrage"""
+    await db.connect()
+    await init_db()
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Fermer la connexion DB à l'arrêt"""
+    await db.disconnect()
+
+# Note: Builds maintenant stockés dans PostgreSQL (plus de stockage en mémoire)
 
 @app.get("/")
 async def root(x_user: str = Header(...)):
@@ -95,11 +107,17 @@ async def create_build(
     """Démarrer un nouveau build d'image Docker"""
     
     try:
-        # Démarrer le build en arrière-plan avec callback pour update du storage
-        def update_build_status(build_status: BuildStatusResponse):
-            builds_storage[build_status.build_id] = build_status
+        # Démarrer le build en arrière-plan avec callback pour update de la DB
+        async def update_build_status_callback(build_status: BuildStatusResponse):
+            # Mettre à jour dans la database au lieu du storage en mémoire
+            await update_build_status(
+                build_status.build_id,
+                build_status.status,
+                completed_at=build_status.completed_at,
+                error_message=build_status.error_message
+            )
             
-        build_id = await github_builder.start_build(build_request, update_build_status, x_user)
+        build_id = await github_builder.start_build(build_request, update_build_status_callback, x_user)
         
         # Générer nom image format: user-project-service
         project_name = build_request.image_name.split('-')[0] if '-' in build_request.image_name else build_request.image_name
@@ -118,16 +136,19 @@ async def create_build(
             estimated_duration=300  # 5 minutes estimation
         )
         
-        # Stocker le build
-        builds_storage[build_id] = BuildStatusResponse(
-            build_id=build_id,
-            project_id=build_request.project_id,
-            service_name=build_request.service_name,
-            status=BuildStatus.BUILDING,
-            image_full_name=image_full_name,
-            created_at=datetime.now(),
-            started_at=datetime.now()
-        )
+        # Stocker le build dans la database
+        await create_build({
+            'build_id': build_id,
+            'project_id': build_request.project_id,
+            'username': x_user,
+            'service_name': build_request.service_name,
+            'image_name': build_request.image_name,
+            'image_full_name': image_full_name,
+            'status': BuildStatus.BUILDING,
+            'created_at': datetime.now(),
+            'started_at': datetime.now(),
+            'estimated_duration': 300
+        })
         
         return build_response
         
@@ -141,10 +162,11 @@ async def get_build_status(
 ):
     """Récupérer le statut d'un build"""
     
-    if build_id not in builds_storage:
+    build_data = await get_build(build_id)
+    if not build_data:
         raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
     
-    return builds_storage[build_id]
+    return BuildStatusResponse(**build_data)
 
 @app.delete("/builds/{build_id}")
 async def cancel_build(
@@ -153,14 +175,14 @@ async def cancel_build(
 ):
     """Annuler un build en cours"""
     
-    if build_id not in builds_storage:
+    build_data = await get_build(build_id)
+    if not build_data:
         raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
     
     success = await github_builder.cancel_build(build_id)
     
     if success:
-        builds_storage[build_id].status = BuildStatus.CANCELLED
-        builds_storage[build_id].completed_at = datetime.now()
+        await update_build_status(build_id, BuildStatus.CANCELLED, completed_at=datetime.now())
         return {"message": f"Build {build_id} cancelled successfully"}
     else:
         raise HTTPException(status_code=400, detail=f"Cannot cancel build {build_id}")
@@ -172,7 +194,8 @@ async def get_build_logs(
 ):
     """Stream des logs d'un build en temps réel"""
     
-    if build_id not in builds_storage:
+    build_data = await get_build(build_id)
+    if not build_data:
         raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
     
     async def log_generator():
@@ -194,18 +217,21 @@ async def list_project_builds(
 ):
     """Lister tous les builds d'un projet"""
     
-    # Filtrer les builds par project_id
-    project_builds = [
-        build for build in builds_storage.values()
-        if build.project_id == project_id
-    ]
+    # Récupérer les builds depuis la DB
+    builds_data = await list_builds_by_project(project_id, limit, offset)
     
-    # Pagination
-    total = len(project_builds)
-    paginated_builds = project_builds[offset:offset + limit]
+    # Compter le total pour ce projet
+    conn = await db.get_connection()
+    try:
+        total = await conn.fetchval("SELECT COUNT(*) FROM builds WHERE project_id = $1", project_id)
+    finally:
+        await db.release_connection(conn)
+    
+    # Convertir en BuildStatusResponse
+    builds = [BuildStatusResponse(**build_data) for build_data in builds_data]
     
     return BuildListResponse(
-        builds=paginated_builds,
+        builds=builds,
         total=total,
         limit=limit,
         offset=offset
@@ -220,21 +246,25 @@ async def list_all_builds(
 ):
     """Lister tous les builds avec filtres optionnels"""
     
-    all_builds = list(builds_storage.values())
+    # Récupérer depuis la DB avec filtrage optionnel
+    status_str = status.value if status else None
+    builds_data = await list_all_builds(limit, offset, status_str)
     
-    # Filtrer par statut si spécifié
+    # Compter le total
+    total = await count_builds()
     if status:
-        all_builds = [build for build in all_builds if build.status == status]
+        # Compter avec filtre de statut
+        conn = await db.get_connection()
+        try:
+            total = await conn.fetchval("SELECT COUNT(*) FROM builds WHERE status = $1", status_str)
+        finally:
+            await db.release_connection(conn)
     
-    # Trier par date de création (plus récent en premier)
-    all_builds.sort(key=lambda x: x.created_at, reverse=True)
-    
-    # Pagination
-    total = len(all_builds)
-    paginated_builds = all_builds[offset:offset + limit]
+    # Convertir en BuildStatusResponse
+    builds = [BuildStatusResponse(**build_data) for build_data in builds_data]
     
     return {
-        "builds": paginated_builds,
+        "builds": builds,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -251,7 +281,7 @@ async def service_status():
         "github_configured": bool(settings.GITHUB_TOKEN and settings.GITHUB_BUILD_REPO),
         "ghcr_configured": bool(settings.GHCR_TOKEN and settings.GHCR_USERNAME),
         "active_builds_count": len(github_builder.active_builds),
-        "total_builds": len(builds_storage),
+        "total_builds": await count_builds(),
         "settings": {
             "max_concurrent_builds": settings.MAX_CONCURRENT_BUILDS,
             "build_timeout": settings.BUILD_TIMEOUT,

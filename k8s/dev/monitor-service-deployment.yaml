@@ -34,6 +34,26 @@ spec:
           value: "2"
         - name: INGRESS_CLASS
           value: "nginx"
+        # Configuration base de données PostgreSQL partagée
+        - name: DB_HOST
+          value: "postgresql-service.nokube-system.svc.cluster.local"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: auth-secret
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: auth-secret
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: auth-secret
+              key: DB_PASSWORD
         resources:
           requests:
             cpu: 100m

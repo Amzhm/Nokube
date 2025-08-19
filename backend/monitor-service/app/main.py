@@ -12,6 +12,10 @@ from app.schemas import (
 )
 from app.manifest_generator import manifest_generator
 from app.kubernetes_client import k8s_client
+from app.database import (
+    db, init_db, create_deployment, get_deployment, update_deployment_status,
+    list_deployments_by_project, count_deployments, count_deployments_by_status
+)
 from app.middleware import LoggingMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,8 +36,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Stockage temporaire des déploiements (en production, utiliser une DB)
-deployments_storage: Dict[str, DeploymentStatusResponse] = {}
+# Events de cycle de vie
+@app.on_event("startup")
+async def startup():
+    """Initialiser la connexion DB au démarrage"""
+    await db.connect()
+    await init_db()
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Fermer la connexion DB à l'arrêt"""
+    await db.disconnect()
+
+# Note: Déploiements maintenant stockés dans PostgreSQL (plus de stockage en mémoire)
 manifests_storage: Dict[str, Dict[str, str]] = {}  # deployment_id -> manifests
 
 @app.get("/")
@@ -144,18 +159,30 @@ async def deploy_service(
             access_url=access_url
         )
         
-        # Stocker le déploiement
-        deployments_storage[deployment_id] = DeploymentStatusResponse(
-            deployment_id=deployment_id,
-            project_id=deploy_request.project_id,
-            service_name=deploy_request.service_name,
-            status=DeploymentStatus.PENDING,
-            image_name=deploy_request.image_name,
-            replicas_ready=0,
-            replicas_total=deploy_request.replicas,
-            created_at=datetime.now(),
-            access_url=access_url
+        # Stocker le déploiement dans la database
+        namespace_name = manifest_generator._generate_namespace_name(
+            deploy_request.username, 
+            deploy_request.project_name
         )
+        
+        await create_deployment({
+            'deployment_id': deployment_id,
+            'project_id': deploy_request.project_id,
+            'username': deploy_request.username,
+            'service_name': deploy_request.service_name,
+            'display_name': deploy_request.display_name,
+            'description': deploy_request.description,
+            'image_name': deploy_request.image_name,
+            'status': DeploymentStatus.PENDING,
+            'replicas_total': deploy_request.replicas,
+            'created_at': datetime.now(),
+            'access_url': access_url,
+            'namespace_name': namespace_name,
+            'manifests_generated': list(manifests.keys()),
+            'health_check_enabled': deploy_request.health_check_enabled,
+            'liveness_check_path': deploy_request.liveness_check_path,
+            'readiness_check_path': deploy_request.readiness_check_path
+        })
         
         # Démarrer le déploiement en arrière-plan
         background_tasks.add_task(
@@ -182,10 +209,8 @@ async def deploy_manifests_background(
     try:
         print(f"Starting background deployment {deployment_id}")
         
-        # Marquer comme en cours de déploiement
-        if deployment_id in deployments_storage:
-            deployments_storage[deployment_id].status = DeploymentStatus.DEPLOYING
-            deployments_storage[deployment_id].updated_at = datetime.now()
+        # Marquer comme en cours de déploiement dans la DB
+        await update_deployment_status(deployment_id, DeploymentStatus.DEPLOYING)
         
         # Générer le namespace
         namespace = manifest_generator._generate_namespace_name(
@@ -209,32 +234,31 @@ async def deploy_manifests_background(
             deployment_name = deploy_request.service_name.lower()
             await wait_for_deployment_ready(deployment_name, namespace, timeout=300)
         
-        # Récupérer le statut final du déploiement
+        # Récupérer le statut final du déploiement et mettre à jour la DB
         if "deployment" in manifests:
             status = await k8s_client.get_deployment_status(
                 deploy_request.service_name.lower(), 
                 namespace
             )
             
-            if deployment_id in deployments_storage:
-                deployments_storage[deployment_id].replicas_ready = status.get("replicas_ready", 0)
-                deployments_storage[deployment_id].replicas_total = status.get("replicas_total", deploy_request.replicas)
-        
-        # Marquer comme déployé avec succès
-        if deployment_id in deployments_storage:
-            deployments_storage[deployment_id].status = DeploymentStatus.RUNNING
-            deployments_storage[deployment_id].updated_at = datetime.now()
+            await update_deployment_status(
+                deployment_id,
+                DeploymentStatus.RUNNING,
+                replicas_ready=status.get("replicas_ready", 0),
+                replicas_total=status.get("replicas_total", deploy_request.replicas)
+            )
         
         print(f"✅ Deployment {deployment_id} completed successfully")
         
     except Exception as e:
         print(f"❌ Background deployment error: {str(e)}")
         
-        # Marquer comme échoué
-        if deployment_id in deployments_storage:
-            deployments_storage[deployment_id].status = DeploymentStatus.FAILED
-            deployments_storage[deployment_id].error_message = str(e)
-            deployments_storage[deployment_id].updated_at = datetime.now()
+        # Marquer comme échoué dans la DB
+        await update_deployment_status(
+            deployment_id, 
+            DeploymentStatus.FAILED,
+            error_message=str(e)
+        )
 
 async def wait_for_deployment_ready(deployment_name: str, namespace: str, timeout: int = 300):
     """Attendre que le déploiement soit prêt"""
@@ -268,15 +292,12 @@ async def get_deployment_status(
 ):
     """Récupérer le statut d'un déploiement"""
     
-    if deployment_id not in deployments_storage:
+    deployment_data = await get_deployment(deployment_id)
+    if not deployment_data:
         raise HTTPException(status_code=404, detail=f"Deployment {deployment_id} not found")
     
-    deployment = deployments_storage[deployment_id]
-    
-    # Sécurité basique - on pourrait vérifier ownership du projet
-    # TODO: Implémenter vérification permissions via project ownership
-    
-    return deployment
+    # Convertir les données DB en DeploymentStatusResponse
+    return DeploymentStatusResponse(**deployment_data)
 
 @app.get("/manifests/{deployment_id}", response_model=ManifestResponse)
 async def get_deployment_manifests(
@@ -285,7 +306,8 @@ async def get_deployment_manifests(
 ):
     """Récupérer les manifests générés pour un déploiement"""
     
-    if deployment_id not in deployments_storage:
+    deployment_data = await get_deployment(deployment_id)
+    if not deployment_data:
         raise HTTPException(status_code=404, detail=f"Deployment {deployment_id} not found")
     
     if deployment_id not in manifests_storage:
@@ -305,21 +327,21 @@ async def list_project_deployments(
 ):
     """Lister tous les déploiements d'un projet"""
     
-    # Filtrer les déploiements par project_id
-    project_deployments = [
-        deployment for deployment in deployments_storage.values()
-        if deployment.project_id == project_id
-    ]
+    # Récupérer depuis la DB avec pagination
+    deployments_data = await list_deployments_by_project(project_id, limit, offset)
     
-    # Trier par date de création (plus récent en premier)
-    project_deployments.sort(key=lambda x: x.created_at, reverse=True)
+    # Compter le total pour ce projet
+    conn = await db.get_connection()
+    try:
+        total = await conn.fetchval("SELECT COUNT(*) FROM deployments WHERE project_id = $1", project_id)
+    finally:
+        await db.release_connection(conn)
     
-    # Pagination
-    total = len(project_deployments)
-    paginated_deployments = project_deployments[offset:offset + limit]
+    # Convertir en DeploymentStatusResponse
+    deployments = [DeploymentStatusResponse(**deployment_data) for deployment_data in deployments_data]
     
     return {
-        "deployments": paginated_deployments,
+        "deployments": deployments,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -334,10 +356,9 @@ async def delete_deployment(
 ):
     """Supprimer un déploiement (undeploy)"""
     
-    if deployment_id not in deployments_storage:
+    deployment_data = await get_deployment(deployment_id)
+    if not deployment_data:
         raise HTTPException(status_code=404, detail=f"Deployment {deployment_id} not found")
-    
-    deployment = deployments_storage[deployment_id]
     
     try:
         if force:
@@ -350,9 +371,8 @@ async def delete_deployment(
             # TODO: Implémenter suppression sélective des ressources
             print(f"Selective deletion of deployment {deployment_id} initiated")
         
-        # Marquer comme supprimé
-        deployments_storage[deployment_id].status = DeploymentStatus.STOPPED
-        deployments_storage[deployment_id].updated_at = datetime.now()
+        # Marquer comme supprimé dans la DB
+        await update_deployment_status(deployment_id, DeploymentStatus.STOPPED)
         
         return {"message": f"Deployment {deployment_id} deletion initiated", "force": force}
         
@@ -365,23 +385,25 @@ async def service_status():
     
     kubernetes_connected = await k8s_client.test_connection()
     
-    active_deployments = [
-        d for d in deployments_storage.values() 
-        if d.status in [DeploymentStatus.DEPLOYING, DeploymentStatus.RUNNING]
-    ]
+    # Récupérer les statistiques depuis la DB
+    total_deployments = await count_deployments()
+    deployment_stats = await count_deployments_by_status()
+    
+    # Calculer les déploiements actifs
+    active_count = deployment_stats.get(DeploymentStatus.DEPLOYING, 0) + deployment_stats.get(DeploymentStatus.RUNNING, 0)
     
     return {
         "service": "monitor-service",
         "status": "running",
         "kubernetes_connected": kubernetes_connected,
-        "active_deployments_count": len(active_deployments),
-        "total_deployments": len(deployments_storage),
+        "active_deployments_count": active_count,
+        "total_deployments": total_deployments,
         "deployment_stats": {
-            "pending": len([d for d in deployments_storage.values() if d.status == DeploymentStatus.PENDING]),
-            "deploying": len([d for d in deployments_storage.values() if d.status == DeploymentStatus.DEPLOYING]),
-            "running": len([d for d in deployments_storage.values() if d.status == DeploymentStatus.RUNNING]),
-            "failed": len([d for d in deployments_storage.values() if d.status == DeploymentStatus.FAILED]),
-            "stopped": len([d for d in deployments_storage.values() if d.status == DeploymentStatus.STOPPED])
+            "pending": deployment_stats.get(DeploymentStatus.PENDING, 0),
+            "deploying": deployment_stats.get(DeploymentStatus.DEPLOYING, 0),
+            "running": deployment_stats.get(DeploymentStatus.RUNNING, 0),
+            "failed": deployment_stats.get(DeploymentStatus.FAILED, 0),
+            "stopped": deployment_stats.get(DeploymentStatus.STOPPED, 0)
         },
         "settings": {
             "default_replicas": settings.DEFAULT_REPLICAS,
