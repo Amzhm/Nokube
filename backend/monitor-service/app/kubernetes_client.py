@@ -60,7 +60,7 @@ class KubernetesClient:
                 return False
             raise e
     
-    async def create_namespace(self, namespace: str, labels: Dict[str, str] = None, annotations: Dict[str, str] = None) -> bool:
+    async def _create_namespace(self, namespace: str, labels: Dict[str, str] = None, annotations: Dict[str, str] = None) -> bool:
         """Créer un namespace avec labels et annotations"""
         try:
             if await self.namespace_exists(namespace):
@@ -84,203 +84,65 @@ class KubernetesClient:
             return False
     
     async def apply_manifests(self, manifests: Dict[str, str], namespace: str) -> Dict[str, bool]:
-        """Appliquer les manifests K8s dans l'ordre correct"""
+        """Appliquer les manifests K8s via kubectl apply - approche unifiée"""
         results = {}
         
-        # Ordre d'application des manifests
+        # Ordre d'application des manifests (dépendances K8s)
         apply_order = ["namespace", "configmap", "secret", "pvc", "deployment", "service", "ingress", "hpa"]
         
         for manifest_type in apply_order:
             if manifest_type in manifests:
+                print(f"Applying {manifest_type}...")
                 try:
-                    success = await self._apply_single_manifest(
-                        manifest_type, 
-                        manifests[manifest_type], 
-                        namespace
-                    )
+                    success = await self._apply_manifest_yaml(manifests[manifest_type])
                     results[manifest_type] = success
                     
                     if success:
-                        print(f"✅ Applied {manifest_type}")
+                        print(f"{manifest_type} applied successfully")
                     else:
-                        print(f"❌ Failed to apply {manifest_type}")
+                        print(f"{manifest_type} failed")
                         
                 except Exception as e:
-                    print(f"❌ Error applying {manifest_type}: {e}")
+                    print(f"Error applying {manifest_type}: {e}")
                     results[manifest_type] = False
         
         return results
     
-    async def _apply_single_manifest(self, manifest_type: str, manifest_yaml: str, namespace: str) -> bool:
-        """Appliquer un manifest individuel"""
+    async def _apply_manifest_yaml(self, manifest_yaml: str) -> bool:
+        """Méthode générique pour appliquer n'importe quel manifest K8s via kubectl"""
         try:
-            # Parser le YAML
-            manifest_dict = yaml.safe_load(manifest_yaml)
-            
-            if manifest_type == "namespace":
-                return await self._apply_namespace(manifest_dict)
-            elif manifest_type == "configmap":
-                return await self._apply_configmap(manifest_dict, namespace)
-            elif manifest_type == "secret":
-                return await self._apply_secret(manifest_dict, namespace)
-            elif manifest_type == "pvc":
-                return await self._apply_pvc(manifest_dict, namespace)
-            elif manifest_type == "deployment":
-                return await self._apply_deployment(manifest_dict, namespace)
-            elif manifest_type == "service":
-                return await self._apply_service(manifest_dict, namespace)
-            elif manifest_type == "ingress":
-                return await self._apply_ingress(manifest_dict, namespace)
-            elif manifest_type == "hpa":
-                return await self._apply_hpa(manifest_dict, namespace)
-            else:
-                print(f"Unknown manifest type: {manifest_type}")
-                return False
-                
-        except Exception as e:
-            print(f"Error applying {manifest_type}: {e}")
-            return False
-    
-    async def _apply_namespace(self, manifest: dict) -> bool:
-        """Appliquer un Namespace"""
-        try:
-            namespace_name = manifest['metadata']['name']
-            labels = manifest['metadata'].get('labels', {})
-            annotations = manifest['metadata'].get('annotations', {})
-            
-            return await self.create_namespace(namespace_name, labels, annotations)
-        except Exception as e:
-            print(f"Error creating namespace: {e}")
-            return False
-    
-    async def _apply_configmap(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un ConfigMap"""
-        try:
-            configmap = client.V1ConfigMap(
-                metadata=client.V1ObjectMeta(
-                    name=manifest['metadata']['name'],
-                    namespace=namespace,
-                    labels=manifest['metadata'].get('labels', {}),
-                    annotations=manifest['metadata'].get('annotations', {})
-                ),
-                data=manifest.get('data', {})
-            )
-            
-            # Essayer de créer, si existe déjà, remplacer
-            try:
-                self.v1.create_namespaced_config_map(namespace=namespace, body=configmap)
-            except ApiException as e:
-                if e.status == 409:  # Already exists
-                    self.v1.replace_namespaced_config_map(
-                        name=manifest['metadata']['name'],
-                        namespace=namespace, 
-                        body=configmap
-                    )
-                else:
-                    raise e
-            
-            return True
-        except Exception as e:
-            print(f"Error applying ConfigMap: {e}")
-            return False
-    
-    async def _apply_secret(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un Secret"""
-        try:
-            secret = client.V1Secret(
-                metadata=client.V1ObjectMeta(
-                    name=manifest['metadata']['name'],
-                    namespace=namespace,
-                    labels=manifest['metadata'].get('labels', {}),
-                    annotations=manifest['metadata'].get('annotations', {})
-                ),
-                type=manifest.get('type', 'Opaque'),
-                data=manifest.get('data', {})
-            )
-            
-            try:
-                self.v1.create_namespaced_secret(namespace=namespace, body=secret)
-            except ApiException as e:
-                if e.status == 409:  # Already exists
-                    self.v1.replace_namespaced_secret(
-                        name=manifest['metadata']['name'],
-                        namespace=namespace,
-                        body=secret
-                    )
-                else:
-                    raise e
-            
-            return True
-        except Exception as e:
-            print(f"Error applying Secret: {e}")
-            return False
-    
-    async def _apply_deployment(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un Deployment"""
-        try:
-            # Utiliser kubectl apply pour les Deployments (plus robuste)
-            return await self._kubectl_apply_manifest(manifest, namespace)
-        except Exception as e:
-            print(f"Error applying Deployment: {e}")
-            return False
-    
-    async def _apply_service(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un Service"""
-        try:
-            return await self._kubectl_apply_manifest(manifest, namespace)
-        except Exception as e:
-            print(f"Error applying Service: {e}")
-            return False
-    
-    async def _apply_ingress(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un Ingress"""
-        try:
-            return await self._kubectl_apply_manifest(manifest, namespace)
-        except Exception as e:
-            print(f"Error applying Ingress: {e}")
-            return False
-    
-    async def _apply_pvc(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un PVC"""
-        try:
-            return await self._kubectl_apply_manifest(manifest, namespace)
-        except Exception as e:
-            print(f"Error applying PVC: {e}")
-            return False
-    
-    async def _apply_hpa(self, manifest: dict, namespace: str) -> bool:
-        """Appliquer un HPA"""
-        try:
-            return await self._kubectl_apply_manifest(manifest, namespace)
-        except Exception as e:
-            print(f"Error applying HPA: {e}")
-            return False
-    
-    async def _kubectl_apply_manifest(self, manifest: dict, namespace: str) -> bool:
-        """Utiliser kubectl apply pour appliquer un manifest"""
-        try:
-            # Créer un fichier temporaire avec le manifest
+            # Écrire le manifest dans un fichier temporaire
             with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-                yaml.dump(manifest, f)
+                f.write(manifest_yaml)
                 temp_file = f.name
             
-            # Appliquer avec kubectl
-            cmd = ["kubectl", "apply", "-f", temp_file, "-n", namespace]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            # Nettoyer le fichier temporaire
-            os.unlink(temp_file)
-            
-            if result.returncode == 0:
-                print(f"kubectl apply successful: {result.stdout.strip()}")
-                return True
-            else:
-                print(f"kubectl apply failed: {result.stderr}")
-                return False
+            try:
+                # Appliquer via kubectl (plus robuste que l'API directe)
+                result = subprocess.run(
+                    ['kubectl', 'apply', '-f', temp_file],
+                    capture_output=True, 
+                    text=True, 
+                    check=True
+                )
                 
+                print(f"kubectl output: {result.stdout.strip()}")
+                return True
+                
+            except subprocess.CalledProcessError as e:
+                print(f"kubectl apply failed: {e.stderr}")
+                return False
+            
         except Exception as e:
-            print(f"Error with kubectl apply: {e}")
+            print(f"Error in _apply_manifest_yaml: {e}")
             return False
+        
+        finally:
+            # Nettoyer le fichier temporaire
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+    
     
     async def get_deployment_status(self, deployment_name: str, namespace: str) -> Dict:
         """Récupérer le statut d'un déploiement"""
@@ -322,6 +184,86 @@ class KubernetesClient:
                 return True
             print(f"Error deleting namespace {namespace}: {e}")
             return False
+    
+    async def _delete_resource(self, resource_type: str, name: str, namespace: str) -> bool:
+        """Méthode générique pour supprimer une ressource K8s via kubectl"""
+        try:
+            # Utiliser kubectl delete directement (plus fiable que l'API)
+            result = subprocess.run([
+                'kubectl', 'delete', resource_type, name, 
+                '-n', namespace, '--ignore-not-found=true'
+            ], capture_output=True, text=True, check=False)
+            
+            if result.returncode == 0:
+                if result.stdout.strip():
+                    print(f"kubectl delete output: {result.stdout.strip()}")
+                return True
+            else:
+                print(f"kubectl delete failed for {resource_type} {name}: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"Error deleting {resource_type} {name}: {e}")
+            return False
+    
+    async def delete_deployment_resources(self, service_name: str, namespace: str) -> Dict[str, bool]:
+        """Supprimer toutes les ressources liées à un service par noms réels K8s"""
+        results = {}
+        
+        # Convention de nommage NoKube basée sur service_name
+        app_name = service_name.lower()
+        
+        # Liste des ressources potentiellement créées (ordre de suppression important)
+        # Supprimer dans l'ordre inverse de création pour éviter les dépendances
+        resource_names = [
+            ("ingress", f"{app_name}-ingress"),
+            ("hpa", f"{app_name}-hpa"),
+            ("service", f"{app_name}-service"),
+            ("deployment", app_name),
+            ("configmap", f"{app_name}-config"),
+            ("secret", f"{app_name}-secret"),
+            ("pvc", f"{app_name}-pvc")
+        ]
+        
+        print(f"Deleting resources for service '{service_name}' (app_name: {app_name}) in namespace {namespace}")
+        
+        # Supprimer chaque ressource par son nom réel
+        successful_deletions = []
+        failed_deletions = []
+        
+        for resource_type, resource_name in resource_names:
+            print(f"Attempting to delete {resource_type}: {resource_name}")
+            success = await self._delete_resource(resource_type, resource_name, namespace)
+            results[f"{resource_type}/{resource_name}"] = success
+            
+            if success:
+                successful_deletions.append(f"{resource_type}/{resource_name}")
+                print(f"✅ Successfully deleted {resource_type}: {resource_name}")
+            else:
+                failed_deletions.append(f"{resource_type}/{resource_name}")
+                print(f"❌ Failed to delete {resource_type}: {resource_name}")
+        
+        # Statistiques finales
+        total_attempted = len(resource_names)
+        total_successful = len(successful_deletions)
+        
+        print(f"Deletion summary: {total_successful}/{total_attempted} resources deleted successfully")
+        if successful_deletions:
+            print(f"Successful deletions: {successful_deletions}")
+        if failed_deletions:
+            print(f"Failed deletions: {failed_deletions}")
+        
+        # Ajouter des métadonnées au résultat
+        results["_summary"] = {
+            "total_attempted": total_attempted,
+            "total_successful": total_successful,
+            "total_failed": len(failed_deletions),
+            "successful_deletions": successful_deletions,
+            "failed_deletions": failed_deletions
+        }
+        
+        return results
+    
 
 # Instance globale du client
 k8s_client = KubernetesClient()

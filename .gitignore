@@ -39,6 +39,7 @@ logs/
 
 # Kubernetes secrets
 k8s/secrets/
+k8s/helm/
 
 # Temporary files
 tmp/

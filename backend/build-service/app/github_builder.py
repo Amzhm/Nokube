@@ -124,6 +124,7 @@ class GitHubActionsBuilder:
         
         if build_request.has_dockerfile:
             # Utiliser le Dockerfile existant dans le repo utilisateur
+            # Le workflow ajoute automatiquement nokube-builds/ donc on retourne le path relatif
             dockerfile_path = f"source-code/{build_request.dockerfile_path}"
             print(f"Using existing Dockerfile from user repo: {build_request.dockerfile_path}")
             return dockerfile_path
@@ -191,6 +192,7 @@ CMD ["echo", "NoKube default container - configure your Dockerfile"]"""
         workflow_inputs = {
             "build_id": build_id,
             "dockerfile_path": dockerfile_path,
+            "has_dockerfile": str(build_request.has_dockerfile).lower(),  # true/false pour le workflow
             "source_repo": str(build_request.repository_url).replace("https://github.com/", ""),
             "source_branch": build_request.branch or "main",
             "image_name": generated_image_name,  # Nom généré au format user-project-service

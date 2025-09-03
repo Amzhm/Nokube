@@ -33,50 +33,50 @@ class DeployRequest(BaseModel):
     description: Optional[str] = None
     image_name: str              # ghcr.io/amzhm/user-project-service:tag
     
-    # Configuration du service
-    service_type: ServiceType = ServiceType.WEB
-    exposure_type: ExposureType = ExposureType.EXTERNAL
+    # Configuration du service (requis - frontend doit fournir)
+    service_type: ServiceType
+    exposure_type: ExposureType
     
-    # Configuration ports (FLUX: Internet:80 → Ingress → Service:8000 → Container:container_port)
-    container_port: int = 3000         # Port d'écoute dans le container (choix utilisateur)
-    service_port: int = 8000          # Port du service K8s (standardisé NoKube)
+    # Configuration ports (requis)
+    container_port: int                    # Port d'écoute dans le container
+    service_port: int                      # Port du service K8s
     
-    # Configuration des ressources (choix utilisateur)
-    replicas: int = 2
-    cpu_request: str = "100m"         # CPU demandé (ex: 100m, 0.5, 1)
-    cpu_limit: str = "500m"           # CPU limite
-    memory_request: str = "128Mi"     # RAM demandée (ex: 128Mi, 1Gi)
-    memory_limit: str = "512Mi"       # RAM limite
+    # Configuration des ressources (requis)
+    replicas: int
+    cpu_request: str                       # Ex: "100m", "0.5", "1"
+    cpu_limit: str                         # Ex: "500m", "1", "2"
+    memory_request: str                    # Ex: "128Mi", "256Mi", "1Gi"
+    memory_limit: str                      # Ex: "512Mi", "1Gi", "2Gi"
     
-    # Configuration réseau (si exposé)
-    custom_domain: Optional[str] = None    # Domaine personnalisé
-    custom_path: Optional[str] = None      # Chemin personnalisé (ex: /api, /app)
-    enable_https: bool = False             # Certificat SSL automatique
+    # Configuration réseau (optionnel)
+    custom_domain: Optional[str] = None
+    custom_path: Optional[str] = None
+    enable_https: bool = False
     
-    # Variables d'environnement
-    env_vars: Dict[str, str] = {}          # Variables publiques
-    secrets: Dict[str, str] = {}           # Variables sensibles (base64)
+    # Variables d'environnement (optionnel)
+    env_vars: Optional[Dict[str, str]] = None
+    secrets: Optional[Dict[str, str]] = None
     
-    # Configuration santé (configurables par utilisateur via frontend)
-    health_check_enabled: bool = True                      # Activer/désactiver tous les health checks
-    liveness_check_path: Optional[str] = "/health"         # Endpoint liveness ou None pour désactiver
-    readiness_check_path: Optional[str] = "/ready"         # Endpoint readiness ou None pour désactiver
-    health_check_port: Optional[int] = None                # Port health check (défaut: container_port)
-    liveness_initial_delay: int = 30                       # Délai avant premier liveness check (secondes)
-    readiness_initial_delay: int = 5                       # Délai avant premier readiness check (secondes)
-    health_check_period: int = 10                          # Fréquence des checks (secondes)
-    health_check_timeout: int = 5                          # Timeout par check (secondes)
-    health_check_failure_threshold: int = 3                # Nombre d'échecs avant restart/not ready
+    # Configuration santé (requis)
+    health_check_enabled: bool
+    liveness_check_path: Optional[str] = None
+    readiness_check_path: Optional[str] = None
+    health_check_port: Optional[int] = None
+    liveness_initial_delay: Optional[int] = None
+    readiness_initial_delay: Optional[int] = None
+    health_check_period: Optional[int] = None
+    health_check_timeout: Optional[int] = None
+    health_check_failure_threshold: Optional[int] = None
     
     # Stockage persistant (optionnel)
-    storage_size: Optional[str] = None     # Ex: "1Gi", "500Mi"
-    storage_path: Optional[str] = None     # Point de montage (ex: /data, /uploads)
+    storage_size: Optional[str] = None
+    storage_path: Optional[str] = None
     
     # Auto-scaling (optionnel)
     enable_autoscaling: bool = False
-    min_replicas: Optional[int] = 1
-    max_replicas: Optional[int] = 10
-    target_cpu_percent: Optional[int] = 70
+    min_replicas: Optional[int] = None
+    max_replicas: Optional[int] = None
+    target_cpu_percent: Optional[int] = None
 
 class DeployResponse(BaseModel):
     """Réponse après déploiement"""

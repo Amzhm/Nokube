@@ -96,7 +96,7 @@ async def ready_check():
     namespace_accessible = True
     try:
         test_ns = "nokube-readiness-test"
-        await k8s_client.create_namespace(test_ns, {"test": "readiness"})
+        await k8s_client._create_namespace(test_ns, {"test": "readiness"})
         await k8s_client.delete_namespace(test_ns)
     except Exception:
         namespace_accessible = False
@@ -361,20 +361,71 @@ async def delete_deployment(
         raise HTTPException(status_code=404, detail=f"Deployment {deployment_id} not found")
     
     try:
+        namespace = deployment_data.get('namespace_name')
+        service_name = deployment_data.get('service_name')
+        
+        if not namespace or not service_name:
+            raise HTTPException(
+                status_code=400, 
+                detail="Missing namespace or service name in deployment data"
+            )
+        
         if force:
             # Suppression complète du namespace (tous les services du projet)
-            # Récupérer le namespace depuis le deployment
-            # TODO: Calculer le namespace depuis les infos du deployment
-            print(f"Force deletion of deployment {deployment_id} initiated")
+            print(f"Force deletion of namespace {namespace} initiated")
+            success = await k8s_client.delete_namespace(namespace)
+            if not success:
+                raise Exception(f"Failed to delete namespace {namespace}")
+            
+            deletion_summary = {"namespace": namespace, "method": "force_delete_namespace"}
+            deletion_successful = True
         else:
-            # Suppression seulement de ce service
-            # TODO: Implémenter suppression sélective des ressources
-            print(f"Selective deletion of deployment {deployment_id} initiated")
+            # Suppression sélective des ressources du deployment par noms réels K8s
+            print(f"Selective deletion of deployment {deployment_id} - service '{service_name}' in namespace {namespace}")
+            results = await k8s_client.delete_deployment_resources(service_name, namespace)
+            
+            # Analyser les résultats avec le nouveau format
+            summary = results.get("_summary", {})
+            total_successful = summary.get("total_successful", 0)
+            total_attempted = summary.get("total_attempted", 0)
+            successful_deletions = summary.get("successful_deletions", [])
+            failed_deletions = summary.get("failed_deletions", [])
+            
+            # Considérer comme réussi si au moins une ressource critique a été supprimée
+            # OU si aucune ressource n'a été trouvée (déjà supprimé)
+            if total_successful > 0 or total_attempted == 0:
+                deletion_successful = True
+                print(f"Deletion successful: {total_successful}/{total_attempted} resources deleted")
+            else:
+                deletion_successful = False
+                print(f"Deletion failed: 0/{total_attempted} resources deleted")
+            
+            deletion_summary = {
+                "deployment_id": deployment_id,
+                "service_name": service_name,
+                "namespace": namespace,
+                "method": "selective_delete_by_names",
+                "total_attempted": total_attempted,
+                "total_successful": total_successful,
+                "successful_deletions": successful_deletions,
+                "failed_deletions": failed_deletions,
+                "deletion_results": results
+            }
         
-        # Marquer comme supprimé dans la DB
-        await update_deployment_status(deployment_id, DeploymentStatus.STOPPED)
+        # Marquer comme supprimé dans la DB SEULEMENT si la suppression a réussi
+        if deletion_successful:
+            await update_deployment_status(deployment_id, DeploymentStatus.STOPPED)
+            print(f"Deployment {deployment_id} marked as stopped in DB")
+        else:
+            print(f"Deployment {deployment_id} NOT marked as stopped due to deletion failures")
+            raise Exception("Some resources failed to delete - deployment not marked as stopped")
         
-        return {"message": f"Deployment {deployment_id} deletion initiated", "force": force}
+        return {
+            "message": f"Deployment {deployment_id} deleted successfully",
+            "deployment_id": deployment_id,
+            "force": force,
+            "deletion_summary": deletion_summary
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete deployment: {str(e)}")
