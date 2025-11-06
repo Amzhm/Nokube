@@ -50,8 +50,8 @@ kind-config.yaml
 start-cluster.sh
 stop-cluster.sh
 cluster-logs/
-CLAUDE.md
 docs/
 
 # Local development files
+
 nginx-ingress-example.yaml
