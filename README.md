@@ -81,6 +81,99 @@ SCHEMA TO ADD
 - Log and metrics management
 - Automatic scaling
 
+##  Installation
+NoKube can be deployed on any Kubernetes cluster.
+### Prerequisites
+
+- A working Kubernetes cluster (kind, minikube, EKS, GKE, AKS, etc.)
+- `kubectl` configured to access your cluster
+- Docker installed to build images
+
+### Installation Steps
+#### 1. Clone the repository
+
+```bash
+git clone https://github.com/Amzhm/Nokube.git
+cd Nokube
+```
+
+#### 2. Build Docker images
+
+Each microservice must be built as a Docker image:
+
+```bash
+# Auth Service
+cd backend/auth-service
+docker build -t nokube/auth-service:latest .
+
+# Project Service
+cd ../project-service
+docker build -t nokube/project-service:latest .
+
+# Build Service
+cd ../build-service
+docker build -t nokube/build-service:latest .
+
+# Monitor Service
+cd ../monitor-service
+docker build -t nokube/monitor-service:latest .
+
+# Gateway Service
+cd ../gateway-service
+docker build -t nokube/gateway-service:latest .
+
+# Frontend
+cd ../../frontend
+docker build -t nokube/frontend:latest .
+```
+#### 4. Apply Kubernetes manifests
+
+Kubernetes manifests are located in the `/k8s` folder:
+
+```bash
+# Apply all manifests
+kubectl apply -f k8s/
+
+# Or apply service by service
+kubectl apply -f k8s/auth-service/
+kubectl apply -f k8s/project-service/
+kubectl apply -f k8s/build-service/
+kubectl apply -f k8s/monitor-service/
+kubectl apply -f k8s/gateway-service/
+kubectl apply -f k8s/frontend/
+kubectl apply -f k8s/ingress/
+```
+
+#### 5. Verify the deployment
+
+```bash
+# Check that all pods are running
+kubectl get pods
+
+# Check services
+kubectl get services
+
+# Check ingress
+kubectl get ingress
+```
+### Configuration
+
+#### Environment Variables
+
+Configure the necessary environment variables in the Kubernetes manifests:
+- PostgreSQL database connection
+- JWT secrets for authentication
+- Kubernetes cluster configuration for the Monitor Service
+#### GitHub Configuration for Build
+
+NoKube uses GitHub Actions to build Docker images. You need to:
+
+1. **Create a GitHub repository** to store your Dockerfiles and trigger builds
+
+2. **Enable GitHub Container Registry (GHCR)**
+3. **Configure GitHub Secrets**: To create a Personal Access Token (PAT)
+4. **Update Kubernetes manifests**
+
 ##  Expected User Flow
 
 1. **Registration/Login** → Account creation
