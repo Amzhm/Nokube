@@ -208,40 +208,6 @@ kubectl logs <pod-name> -n <namespace>
 # Décrire un objet Kubernetes
 kubectl describe <resource> <name>
 ```
-
-## Dépannage courant
-
-### 1. Erreur "Cannot connect to the Docker daemon"
-```bash
-# Vérifier que Docker est démarré
-brew services start docker
-# ou redémarrer Docker Desktop
-```
-
-### 2. Erreur de port déjà utilisé
-```bash
-# Vérifier les ports utilisés
-lsof -i :80
-lsof -i :443
-
-# Tuer les processus si nécessaire
-sudo kill -9 <PID>
-```
-
-### 3. Problème de ressources insuffisantes
-```bash
-# Nettoyer les images Docker inutilisées
-docker system prune -a
-
-# Augmenter les ressources Docker (via Docker Desktop)
-```
-
-### 4. Problème de résolution DNS
-```bash
-# Redémarrer le service DNS du cluster
-kubectl rollout restart deployment/coredns -n kube-system
-```
-
 ## Nettoyage
 
 ### Supprimer les ressources de test
@@ -260,14 +226,6 @@ kind delete cluster --name dev-cluster
 # Nettoyer les images Docker (optionnel)
 docker system prune -f
 ```
-
-## Conseils de performance
-
-1. **Ressources système** : Allouez au moins 4GB de RAM et 2 CPU à Docker
-2. **Stockage** : Utilisez un SSD pour de meilleures performances
-3. **Images** : Pré-téléchargez les images couramment utilisées
-4. **Monitoring** : Utilisez `kubectl top nodes` et `kubectl top pods` pour surveiller les ressources
-
 ## Ressources supplémentaires
 
 - [Documentation officielle Kind](https://kind.sigs.k8s.io/)
